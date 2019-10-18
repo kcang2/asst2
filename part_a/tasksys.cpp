@@ -1,3 +1,7 @@
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <iostream>
 #include "tasksys.h"
 
 
@@ -66,6 +70,7 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+	this->num_T = num_threads - 1;
 }
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
@@ -79,9 +84,27 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+	// TODO: create threads per RUN not per TASK
+        std::thread* threads = new std::thread[this->num_T];
+	int counter = 0;
+	int todo = this->num_T;
+
+	while (true) {
+            for (int i = 0; i < todo; i++) {
+                threads[i] = std::thread(&IRunnable::runTask, runnable, counter+i, num_total_tasks);}
+            
+	    runnable->runTask(counter+todo, num_total_tasks);
+
+            for (int i = 0; i < todo; i++) {
+                threads[i].join(); }
+            
+	    counter += todo;
+	    todo = std::max(0, std::min(num_total_tasks - counter, this->num_T));
+
+	    if (counter >= num_total_tasks){
+	        break;}
+
+	}
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -109,28 +132,69 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
 }
 
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
-    //
-    // TODO: CS149 student implementations may decide to perform setup
-    // operations (such as thread pool construction) here.
-    // Implementations are free to add new class member variables
-    // (requiring changes to tasksys.h).
-    //
+    this->num_T = std::max(1, num_threads - 1);
+    this->threads = new std::thread[num_threads - 1];
+    this->mutex_ = new std::mutex();
+    this->work_counter = 0;
+    this->total_work = 0;
+    this->done_flag = {false};
+
+    for (int i = 0; i < this->num_T; i++) {
+        this->threads[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::waitFunc, this);
+    }
 }
 
-TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
+
+TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    done_flag = true;
+
+    for (int i = 0; i < this->num_T; i++) {
+        this->threads[i].join();
+    }
+
+    delete this->mutex_;
+    delete[] this->threads;
+}
+
+void TaskSystemParallelThreadPoolSpinning::waitFunc() {
+    while(done_flag==false){
+        this->mutex_->lock();
+
+        if (this->total_work==0) {  // NO work
+            this->mutex_->unlock();
+            continue;
+        }
+
+        int id = this->work_counter;
+        if (id >= this->total_work) {  // ALL work done
+            this->total_work = 0;
+            this->mutex_->unlock();
+            continue;
+        }
+	int total = this->total_work;
+	//std::cout << id << " " << total << std::endl;
+        ++(this->work_counter);  // increment counter
+        this->runnable->runTask(id, total); // do work
+        this->mutex_->unlock();
+    }
+}
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
+    this->mutex_->lock();
+    this->runnable = runnable;
+    this->work_counter = 0;
+    this->total_work = num_total_tasks;
+    this->mutex_->unlock();
 
-
-    //
-    // TODO: CS149 students will modify the implementation of this
-    // method in Part A.  The implementation provided below runs all
-    // tasks sequentially on the calling thread.
-    //
-
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    bool done = false;
+    while (done==false){
+        this->mutex_->lock();
+        if (this->work_counter > 0 && this->total_work == 0) {
+            done = true;
+        }
+        this->mutex_->unlock();
     }
+
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -166,11 +230,10 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     //
 }
 
-TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {}
+TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
+}
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
@@ -180,6 +243,7 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     for (int i = 0; i < num_total_tasks; i++) {
         runnable->runTask(i, num_total_tasks);
     }
+
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
