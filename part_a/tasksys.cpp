@@ -3,7 +3,7 @@
 #include <mutex>
 #include <iostream>
 #include "tasksys.h"
-
+#include <vector>
 
 IRunnable::~IRunnable() {}
 
@@ -70,41 +70,53 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-	this->num_T = num_threads - 1;
+	this->num_T = num_threads;
 }
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
 
+void TaskSystemParallelSpawn::workFunc(IRunnable* runnable, std::vector<int> work, int num_total_tasks) {
+	for (int i = 0; i< work.size(); i++) {
+		 runnable->runTask(work[i], num_total_tasks);
+	}
+}
+
 void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
 
-	// TODO: create threads per RUN not per TASK
-        std::thread* threads = new std::thread[this->num_T];
-	int counter = 0;
-	int todo = this->num_T;
-
-	while (true) {
-            for (int i = 0; i < todo; i++) {
-                threads[i] = std::thread(&IRunnable::runTask, runnable, counter+i, num_total_tasks);}
-            
-	    runnable->runTask(counter+todo, num_total_tasks);
-
-            for (int i = 0; i < todo; i++) {
-                threads[i].join(); }
-            
-	    counter += todo;
-	    todo = std::max(0, std::min(num_total_tasks - counter, this->num_T));
-
-	    if (counter >= num_total_tasks){
-	        break;}
-
+        std::thread* threads = new std::thread[this->num_T - 1];
+	std::vector<std::vector> works;
+	
+	// Work allocation
+	for (int i = 0; i < this->num_T; i++) {
+		std::vector<int> temp;
+		for (int j = i ; j < num_total_tasks; j += this->num_T) {
+			temp.push_back(j);
+		}
+		works.push_back(temp);
 	}
+	
+	// Kick-off workers
+	for (int i = 0; i< this->num_T - 1; i++) {
+		threads[i] = std::thread(&TaskSystemParallelSpawn::workFunc, 
+			    this, runnable, works[i], num_total_tasks);
+	}	
+	
+	// Main works
+	for (int i = 0; i< works[this->num_T-1].size(); i++) {
+		 runnable->runTask(works[this->num_T-1][i], num_total_tasks);
+	}
+	
+	// Workers join main
+	for (int i = 0; i< this->num_T - 1; i++) {
+		threads[i].join();
+	}
+	
+	delete[] threads;
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
