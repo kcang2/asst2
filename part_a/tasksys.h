@@ -81,9 +81,25 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
  */
 class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     public:
+	int num_T;
+        int num_R;
+	int total_work;
+	int not_done;
+	int work_counter;
+
+	IRunnable* runnable;
+	std::thread* threads;
+	std::mutex* sleep_mutex;
+	std::mutex* mutex_;
+	std::condition_variable* cond_;
+	std::atomic<bool> done_flag;
+
         TaskSystemParallelThreadPoolSleeping(int num_threads);
         ~TaskSystemParallelThreadPoolSleeping();
         const char* name();
+
+	void waitFunc();
+
         void run(IRunnable* runnable, int num_total_tasks);
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);

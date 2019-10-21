@@ -1,6 +1,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 #include <iostream>
 #include "tasksys.h"
 #include <vector>
@@ -160,7 +161,7 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
-    done_flag = true;
+    this->done_flag = true;
 
     for (int i = 0; i < this->num_T; i++) {
         this->threads[i].join();
@@ -179,7 +180,6 @@ void TaskSystemParallelThreadPoolSpinning::waitFunc() {
             this->total_work = 0;
         }
 
-	int remain = this->not_done;
 	int total = this->total_work;
         int id = this->work_counter;
         if (id == total) {  // NO work initiated or NO work left
@@ -206,6 +206,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     this->total_work = num_total_tasks;
     this->mutex_->unlock();
 
+    // Poll to check if ALL work is done  
     while (true){
         this->mutex_->lock();
         if (this->total_work==0) {
@@ -248,9 +249,81 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->num_T = std::max(1, num_threads - 1);
+    this->threads = new std::thread[this->num_T];
+    this->mutex_ = new std::mutex();
+    this->sleep_mutex = new std::mutex();
+    this->cond_ = new std::condition_variable();
+
+    this->done_flag = {false};
+
+    std::unique_lock<std::mutex> lock(*this->sleep_mutex);
+    for (int i = 0; i < this->num_T; i++) {
+        this->threads[i] = std::thread(&TaskSystemParallelThreadPoolSleeping::waitFunc, this);
+    }
+    
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
+    this->done_flag = true;
+    this->cond_->notify_all();
+
+    for (int i = 0; i < this->num_T; i++) {
+        this->threads[i].join();
+    }
+
+    delete this->mutex_;
+    delete[] this->threads;
+    delete this->cond_;
+}
+
+void TaskSystemParallelThreadPoolSleeping::waitFunc() {
+    std::unique_lock<std::mutex> lock(*this->sleep_mutex);
+
+    while(true){
+	std::cout << "WORKER WAIT" << std::endl;
+	this->num_R--;
+	this->cond_->wait(lock);
+	if (this->done_flag == true) {
+	    this->sleep_mutex->unlock();
+	    break;
+	}
+	this->num_R++;
+	this->sleep_mutex->unlock();
+
+	std::cout << "WORKER START" << std::endl;
+	while (true) {
+            this->mutex_->lock();
+
+            if (this->not_done == 0) {  // ALL work done
+		if (this->total_work != 0) {  // 1st time seen by workers
+		    this->total_work = 0;
+                    std::cout << "WORKER WAKE MAIN" << std::endl;
+                    this->cond_->notify_all();
+		}
+		this->mutex_->unlock();
+		break;
+            }
+    
+            int total = this->total_work;
+            int id = this->work_counter;
+            if (id == total) {  // NO work initiated or NO work left
+                this->mutex_->unlock();
+                continue;
+            }
+    
+            ++(this->work_counter);  // increment counter
+            this->mutex_->unlock();  // Let others access counters to work
+    
+            this->runnable->runTask(id, total); // do work
+    
+            this->mutex_->lock();
+            --(this->not_done); // decrement counter after work done
+            this->mutex_->unlock();
+	}
+	std::cout << "WORKER DONE" << std::endl;
+    }
+    std::cout << "WORKER TERMINATE" << std::endl;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -258,12 +331,23 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
-    //
+    
+    // Set-up work
+    this->mutex_->lock();
+    this->runnable = runnable;
+    this->work_counter = 0;
+    this->not_done = num_total_tasks;
+    this->total_work = num_total_tasks;
+    this->mutex_->unlock();
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+    // Tell workers there is work
+    std::cout << "MAIN WAKE WORKER" << std::endl;
+    this->cond_->notify_all();
 
+    // Wait for workers to complete work
+    std::cout << "MAIN WAIT" << std::endl;
+    this->cond_->wait(lock);
+    std::cout << "MAIN END" << std::endl;
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
