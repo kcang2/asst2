@@ -89,7 +89,7 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     //
 
         std::thread* threads = new std::thread[this->num_T - 1];
-	std::vector<std::vector> works;
+	std::vector<std::vector<int>> works;
 	
 	// Work allocation
 	for (int i = 0; i < this->num_T; i++) {
@@ -145,9 +145,11 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
 
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
     this->num_T = std::max(1, num_threads - 1);
-    this->threads = new std::thread[num_threads - 1];
+    this->threads = new std::thread[this->num_T];
     this->mutex_ = new std::mutex();
+
     this->work_counter = 0;
+    this->not_done = 0;
     this->total_work = 0;
     this->done_flag = {false};
 
@@ -172,38 +174,44 @@ void TaskSystemParallelThreadPoolSpinning::waitFunc() {
     while(done_flag==false){
         this->mutex_->lock();
 
-        if (this->total_work==0) {  // NO work
+        if (this->not_done == 0 && this->total_work != 0) {  // ALL work done
+	    this->work_counter = 0;
+            this->total_work = 0;
+        }
+
+	int remain = this->not_done;
+	int total = this->total_work;
+        int id = this->work_counter;
+        if (id == total) {  // NO work initiated or NO work left
             this->mutex_->unlock();
             continue;
         }
 
-        int id = this->work_counter;
-        if (id >= this->total_work) {  // ALL work done
-            this->total_work = 0;
-            this->mutex_->unlock();
-            continue;
-        }
-	int total = this->total_work;
-	//std::cout << id << " " << total << std::endl;
         ++(this->work_counter);  // increment counter
+        this->mutex_->unlock();  // Let others access counters to work
+
         this->runnable->runTask(id, total); // do work
-        this->mutex_->unlock();
+
+	this->mutex_->lock();
+	--(this->not_done); // decrement counter after work done
+	this->mutex_->unlock();
     }
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
+    // set-up work
     this->mutex_->lock();
     this->runnable = runnable;
-    this->work_counter = 0;
+    this->not_done = num_total_tasks;
     this->total_work = num_total_tasks;
     this->mutex_->unlock();
 
-    bool done = false;
-    while (done==false){
+    while (true){
         this->mutex_->lock();
-        if (this->work_counter > 0 && this->total_work == 0) {
-            done = true;
-        }
+        if (this->total_work==0) {
+            this->mutex_->unlock();
+            break;
+	}
         this->mutex_->unlock();
     }
 
