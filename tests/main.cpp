@@ -3,7 +3,6 @@
 #include <getopt.h>
 #include <string>
 #include <assert.h>
-
 #include "tasksys.h"
 #include "tests.h"
 
