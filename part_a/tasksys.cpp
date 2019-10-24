@@ -274,7 +274,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
                     std::bind(&TaskSystemParallelThreadPoolSleeping::wakeMain, this));
     this->done_flag = true;
     //std::cout << "SET DONE FLAG" << std::endl;
-    this->mutex_->unlock();
+    lock.unlock();
 
     this->cond_->notify_all();
 
