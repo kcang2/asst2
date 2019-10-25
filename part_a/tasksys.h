@@ -85,7 +85,6 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
 	int total_work;
 	std::atomic<int> not_done;
 	int work_counter;
-	std::atomic<int> num_wait;
 
 	IRunnable* runnable;
 	std::thread* threads;
