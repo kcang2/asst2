@@ -21,6 +21,7 @@ class IRunnable {
 };
 
 class ITaskSystem {
+
     public:
         /*
           Instantiates a task system.
