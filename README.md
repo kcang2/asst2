@@ -1,7 +1,7 @@
 Summary:
 
-TaskSystem is the class that schedules (parallel) work. Runnable runs the tasks (Mandelbrot etc.)
-Dependency graph is a vector of task IDs.
+TaskSystem is the class that schedules and launches bulk tasks (parallel work). Runnable runs the tasks (Mandelbrot etc.)
+Dependency graph is a vector of taskIDs, where each element represents the bulk tasks IDs that must be completed, so that the current bulk task can start.
 
 # Assignment 2: Building A Task Execution Library (from the Ground Up) #
 
